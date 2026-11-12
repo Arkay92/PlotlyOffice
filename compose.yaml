@@ -1,0 +1,18 @@
+services:
+  plotlyoffice:
+    build: .
+    ports:
+      - "8050:8050"
+    environment:
+      PLOTLYOFFICE_DATABASE: /app/data/office.sqlite3
+      PLOTLYSHEETS_DATABASE: /app/data/sheets.sqlite3
+      PLOTLYSLIDES_DATABASE: /app/data/slides.sqlite3
+      PLOTLYWORD_DATABASE: /app/data/documents.sqlite3
+      HOST: 0.0.0.0
+      PORT: 8050
+    volumes:
+      - plotlyoffice-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  plotlyoffice-data:

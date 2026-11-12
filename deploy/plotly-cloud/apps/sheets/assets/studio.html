@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PlotlySheets · Collaborative spreadsheet</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><span class="brand-mark">S</span><span>Plotly<b>Sheets</b><i>.</i></span></div>
+    <div class="tagline">NUMBERS, NICELY ORGANIZED</div>
+    <button class="button primary wide" data-action="new">＋ New workbook</button>
+    <label class="button ghost wide import">↥ Import workbook<input id="file-input" type="file" accept=".xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.json,.plotsheet"></label>
+    <div class="section-heading"><span>YOUR WORKSPACE</span><em>PRIVATE</em></div>
+    <input id="library-search" class="search" type="search" placeholder="Search workbooks…" aria-label="Search workbooks">
+    <div id="workbook-list" class="workbook-list"></div>
+    <div class="template-card">
+      <span class="spark">✦</span><strong>Start with clarity.</strong>
+      <p>Track a project, explore a budget, or bring a dataset to life.</p>
+      <button class="text-button" data-action="template">Use a starter sheet →</button>
+    </div>
+    <button class="profile" data-action="profile"><span class="online-dot"></span><span><b id="profile-name">Your workspace</b><small>Private until you share a link</small></span></button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="mobile-menu" data-action="toggle-sidebar" aria-label="Open workspace">☰</button>
+      <div class="crumb"><span>Workspace</span><b>/</b><span>Spreadsheet studio</span></div>
+      <div class="top-actions">
+        <div id="avatars" class="avatars"></div>
+        <button class="button quiet" data-action="comments">◫ <span>Comments</span></button>
+        <button class="button quiet" data-action="history">◷ <span>History</span></button>
+        <button class="button secondary" data-action="share">Share</button>
+        <button class="button primary" data-action="export">Export</button>
+      </div>
+    </header>
+
+    <section class="document-head">
+      <div>
+        <span class="eyebrow">A LIVING WORKBOOK</span>
+        <input id="workbook-title" value="Untitled workbook" maxlength="180" aria-label="Workbook title">
+        <div class="save-meta"><span class="online-dot"></span><span id="save-status">Opening workspace…</span><i>·</i><span id="collab-status">Connecting…</span></div>
+      </div>
+      <div class="doc-actions"><span id="role-pill" class="pill">EDITING</span><button class="icon-button" data-action="more">•••</button></div>
+    </section>
+
+    <nav class="menus" aria-label="Workbook menus">
+      <button data-menu="file">File</button><button data-menu="edit">Edit</button><button data-menu="view">View</button>
+      <button data-menu="insert">Insert</button><button data-menu="format">Format</button><button data-menu="data">Data</button>
+      <button data-menu="help">Help</button>
+    </nav>
+
+    <section class="toolbar" aria-label="Formatting toolbar">
+      <div class="tool-group"><button data-action="undo" title="Undo (Ctrl+Z)">↶</button><button data-action="redo" title="Redo (Ctrl+Y)">↷</button><button data-action="print" title="Print / PDF">▣</button></div>
+      <div class="tool-group"><select id="zoom" aria-label="Zoom"><option>75%</option><option selected>100%</option><option>125%</option><option>150%</option></select></div>
+      <div class="tool-group number-tools"><button data-format="currency">£</button><button data-format="percent">%</button><button data-action="decimal-down">.0←</button><button data-action="decimal-up">.00→</button></div>
+      <div class="tool-group"><select id="number-format" aria-label="Number format"><option value="general">General</option><option value="number">Number</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="date">Date</option><option value="text">Plain text</option></select></div>
+      <div class="tool-group"><button data-style="bold" title="Bold"><b>B</b></button><button data-style="italic" title="Italic"><i>I</i></button><button data-style="underline" title="Underline"><u>U</u></button><label title="Text color" class="color-control">A<input id="text-color" type="color" value="#23342f"></label><label title="Fill color" class="color-control fill">▰<input id="fill-color" type="color" value="#e8f1df"></label></div>
+      <div class="tool-group"><button data-align="left" title="Align left">≡</button><button data-align="center" title="Align center">☰</button><button data-align="right" title="Align right">≣</button><button data-style="wrap" title="Wrap text">↵</button></div>
+      <div class="tool-group"><button data-action="add-comment" title="Add comment">＋▢</button><button data-action="filter" title="Toggle filter">▽</button><button data-action="functions" title="Insert function">Σ</button></div>
+    </section>
+
+    <section class="formula-row">
+      <div id="name-box" class="name-box">A1</div><span class="fx">fx</span>
+      <input id="formula-input" autocomplete="off" spellcheck="false" aria-label="Formula or cell value" placeholder="Enter a value or start a formula with =">
+    </section>
+
+    <section class="sheet-area">
+      <div id="grid-scroll" class="grid-scroll"><table id="grid" aria-label="Spreadsheet grid"></table><div id="remote-cursors"></div></div>
+      <aside id="comments-panel" class="side-panel hidden">
+        <header><div><span class="eyebrow">REVIEW</span><h2>Comments</h2></div><button data-action="comments">×</button></header>
+        <div id="comment-list" class="panel-list"></div>
+        <div class="comment-compose"><b id="comment-target">A1</b><textarea id="comment-body" maxlength="3000" placeholder="Write a comment…"></textarea><button class="button primary" data-action="post-comment">Post comment</button></div>
+      </aside>
+    </section>
+
+    <footer class="sheet-footer">
+      <button class="add-sheet" data-action="add-sheet" title="Add sheet">＋</button>
+      <button class="all-sheets" data-action="all-sheets" title="All sheets">☷</button>
+      <div id="sheet-tabs" class="sheet-tabs"></div>
+      <div class="status"><span id="selection-summary">Ready</span><span id="cell-count">1 cell</span></div>
+    </footer>
+  </main>
+
+  <div id="menu-popover" class="popover hidden"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="dialog"><div class="dialog-head"><div><span id="dialog-kicker" class="eyebrow"></span><h2 id="dialog-title"></h2></div><button data-action="close-dialog">×</button></div><div id="dialog-body"></div></dialog>
+</div>
+<script src="assets/editor.js"></script>
+</body>
+</html>

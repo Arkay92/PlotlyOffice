@@ -226,3 +226,176 @@ def test_in_process_sheets_and_slides_bridge(tmp_path):
     res_slides = c.post(f"/api/items/{pptx['id']}/open-suite", json={}, headers=hdr)
     assert res_slides.status_code == 200
     assert res_slides.get_json()["url"].startswith("/slides/studio#deck=")
+
+
+def test_neurosymbolic_knowledge_graph_and_inferences(client):
+    key = _new_user(client, "Alice")
+    hdr = {"Authorization": f"Bearer {key}"}
+
+    folder = client.post("/api/folders", json={"name": "Finance"}, headers=hdr).get_json()
+
+    # Upload two files that share domain concepts & metrics
+    f1 = base64.b64encode(b"# Q4 Revenue Forecast\nRevenue growth target is 24% and EBITDA margin $195,000.\n").decode("ascii")
+    f2 = base64.b64encode(b"Quarter,Revenue,Margin\nQ4,195000,24%\nForecast growth remains strong.\n").decode("ascii")
+    client.post("/api/upload", json={"filename": "Q4_Plan.md", "content": f1, "parent_id": folder["id"]}, headers=hdr)
+    client.post("/api/upload", json={"filename": "Q4_Numbers.csv", "content": f2, "parent_id": folder["id"]}, headers=hdr)
+
+    kg = client.get("/api/kg", headers=hdr).get_json()
+    assert kg["stats"]["nodes"] >= 5
+    assert kg["stats"]["inferred_edges"] >= 1
+    rels = {e["rel"] for e in kg["edges"]}
+    assert "MENTIONS_CONCEPT" in rels
+    assert "COVERS_TOPIC" in rels
+
+    q = client.post("/api/kg/query", json={"query": "Q4 revenue growth"}, headers=hdr).get_json()
+    assert len(q["matches"]) >= 1
+    assert any(m["explanations"] for m in q["matches"])
+
+
+def test_mcp_jsonrpc_suite_and_kg_tools(client):
+    key = _new_user(client, "Alice")
+    hdr = {"Authorization": f"Bearer {key}"}
+
+    manifest = client.get("/mcp").get_json()
+    assert manifest["name"] == "plotlyoffice-mcp"
+    assert len(manifest["tools"]) >= 10
+
+    init_resp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"}).get_json()
+    assert init_resp["result"]["serverInfo"]["name"] == "plotlyoffice-mcp"
+
+    tools_resp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).get_json()
+    tool_names = {t["name"] for t in tools_resp["result"]["tools"]}
+    assert {"office_create_folder", "office_create_document", "office_read_file", "kg_query"}.issubset(tool_names)
+
+    # Create folder and blank Word doc via MCP tools/call
+    f_resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "office_create_folder", "arguments": {"name": "MCP Folder"}},
+        },
+        headers=hdr,
+    ).get_json()
+    assert f_resp["result"]["isError"] is False
+
+    # Upload a markdown note and query KG via MCP
+    client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "office_upload_text_file",
+                "arguments": {"filename": "Roadmap.md", "content": "# AI Roadmap\nBuild neurosymbolic graph and MCP server."},
+            },
+        },
+        headers=hdr,
+    )
+
+    kg_resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "kg_query", "arguments": {"query": "neurosymbolic MCP"}},
+        },
+        headers=hdr,
+    ).get_json()
+    assert "Roadmap.md" in kg_resp["result"]["content"][0]["text"]
+
+
+def test_data_genie_office_folder_upload_kg_import_and_api_feed(tmp_path, monkeypatch):
+    import io
+    from flask import Flask
+    from plotlyoffice.web import configure
+    from genie.web import configure as configure_genie
+
+    monkeypatch.setenv("GENIE_STORAGE_DIR", str(tmp_path / "genie_runtime"))
+
+    office_app = Flask("test_office_genie")
+    office_store = configure(office_app, str(tmp_path / "office.sqlite3"))
+    office_app.config["TESTING"] = True
+    oc = office_app.test_client()
+
+    genie_app = Flask("test_genie")
+    configure_genie(genie_app, office_store=office_store)
+    genie_app.config["TESTING"] = True
+    gc = genie_app.test_client()
+
+    key = _new_user(oc, "Alice")
+    ohdr = {"Authorization": f"Bearer {key}"}
+    ghdr = {"X-Genie": "1", "X-Office-Key": key}
+
+    # 1. Create an Office folder and upload a Markdown strategy doc so it is in the KG
+    folder = oc.post("/api/folders", json={"name": "GenieAnalytics"}, headers=ohdr).get_json()
+    doc_b64 = base64.b64encode(b"# Revenue Expansion Strategy\nEnterprise revenue growth and customer retention.\n").decode("ascii")
+    doc_item = oc.post(
+        "/api/upload",
+        json={"filename": "Expansion_Strategy.md", "content": doc_b64, "parent_id": folder["id"]},
+        headers=ohdr,
+    ).get_json()["items"][0]
+
+    # 2. Data Genie context returns the folder and the KG document
+    ctx = gc.get("/api/office/context", headers=ghdr).get_json()
+    assert ctx["enabled"] is True
+    assert any(f["id"] == folder["id"] for f in ctx["folders"])
+    assert any(d["id"] == doc_item["id"] for d in ctx["documents"])
+
+    # 3. Upload a CSV in Data Genie targeting the PlotlyOffice folder
+    csv_bytes = b"region,revenue,retention\nNorth America,145000,0.94\nEurope,98000,0.91\n"
+    up_res = gc.post(
+        "/api/upload",
+        data={
+            "files": (io.BytesIO(csv_bytes), "regional_revenue.csv"),
+            "office_folder_id": folder["id"],
+            "save_to_office": "1",
+        },
+        headers=ghdr,
+        content_type="multipart/form-data",
+    )
+    assert up_res.status_code == 200
+    assert "regional_revenue.csv" in up_res.get_json()["office_saved"]
+
+    # Confirm the uploaded CSV is inside that PlotlyOffice folder
+    folder_items = oc.get(f"/api/items?parent_id={folder['id']}", headers=ohdr).get_json()["items"]
+    assert any(i["name"] == "regional_revenue.csv" for i in folder_items)
+
+    # 4. Select the Markdown document from Knowledge Graph and add it to Data Genie workspace
+    kg_imp = gc.post("/api/office/kg-import", json={"item_ids": [doc_item["id"]]}, headers=ghdr)
+    assert kg_imp.status_code == 200
+    assert "Expansion_Strategy.md" in kg_imp.get_json()["documents"]
+
+    gstate = gc.get("/api/state", headers=ghdr).get_json()
+    source_names = {s["name"] for s in gstate["sources"]}
+    assert {"regional_revenue.csv", "Expansion_Strategy.md"}.issubset(source_names)
+
+    # 5. Index an API feed response into the KG and verify APIFeed node & links
+    ident = office_store.identity(key)
+    feed_res = office_store.kg.index_api_feed(
+        owner_id=ident["key_hash"],
+        feed_name="Enterprise Revenue Feed",
+        url="https://api.example.com/v1/revenue",
+        method="GET",
+        columns=["region", "revenue", "retention"],
+        sample_text="Enterprise revenue growth and customer retention across regions",
+        row_count=25,
+    )
+    assert feed_res["node_id"].startswith("api:")
+    kg = oc.get("/api/kg", headers=ohdr).get_json()
+    assert any(n["kind"] == "APIFeed" and n["label"] == "Enterprise Revenue Feed" for n in kg["nodes"])
+    assert any(e["src"] == feed_res["node_id"] and e["rel"] in ("RELATED_TO", "SEMANTICALLY_SIMILAR") for e in kg["edges"])
+
+
+def test_unified_asgi_mounts_genie():
+    from starlette.testclient import TestClient
+    import app as unified_app
+
+    tc = TestClient(unified_app.app.server)
+    assert tc.get("/genie/").status_code == 200
+    assert tc.get("/genie/api/state").status_code == 200
+    assert tc.get("/genie/assets/styles.css").status_code == 200
+    assert tc.get("/genie/assets/genie.js").status_code == 200

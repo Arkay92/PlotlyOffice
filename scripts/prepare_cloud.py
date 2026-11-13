@@ -19,6 +19,7 @@ INCLUDE_FILES = [
 INCLUDE_DIRS = [
     "assets",
     "apps",
+    "genie",
     "plotlyoffice",
     "plotlysheets",
     "plotlyslides",

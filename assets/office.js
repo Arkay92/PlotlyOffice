@@ -33,6 +33,9 @@
     drawer: null, // { mode: 'comments'|'activity', itemId, title }
     drawerItems: [],
     commentText: "",
+    kgData: null,
+    kgQuery: "",
+    kgSelectedNode: null,
     toast: null,
     dragging: false,
   };
@@ -208,6 +211,10 @@
   }
 
   async function loadItems() {
+    if (state.view === "kg" && !state.folderId) {
+      await loadKG();
+      return;
+    }
     const params = new URLSearchParams();
     if (state.folderId) {
       params.set("parent_id", state.folderId);
@@ -223,6 +230,31 @@
     state.role = data.role || "owner";
     syncUrl();
     render();
+  }
+
+  async function loadKG() {
+    if (state.kgQuery.trim()) {
+      state.kgData = await api("/api/kg/query", {
+        method: "POST",
+        body: JSON.stringify({ query: state.kgQuery.trim(), limit: 16 }),
+      });
+    } else {
+      state.kgData = await api("/api/kg?limit=120");
+    }
+    state.breadcrumbs = [];
+    syncUrl();
+    render();
+  }
+
+  async function rebuildKG() {
+    try {
+      showToast("Re-indexing workspace into Neurosymbolic KG…");
+      await api("/api/kg/rebuild", { method: "POST" });
+      await loadKG();
+      showToast("Knowledge Graph rebuilt.");
+    } catch (err) {
+      showToast(err.message, true);
+    }
   }
 
   async function openFolder(folderId) {
@@ -575,6 +607,7 @@
       starred: "Starred",
       shared: "Shared Links",
       trash: "Trash",
+      kg: "Neurosymbolic Knowledge Graph",
     };
     const heading = state.folderId ? currentFolder?.name || "Folder" : viewTitles[state.view] || "My Files";
 
@@ -616,6 +649,7 @@
           <button class="nav-item ${!state.folderId && state.view === "starred" ? "active" : ""}" data-view="starred">⭐ Starred</button>
           <button class="nav-item ${!state.folderId && state.view === "shared" ? "active" : ""}" data-view="shared">🔗 Shared</button>
           <button class="nav-item ${!state.folderId && state.view === "trash" ? "active" : ""}" data-view="trash">🗑️ Trash</button>
+          <button class="nav-item ${!state.folderId && state.view === "kg" ? "active" : ""}" data-view="kg">🧠 Knowledge Graph</button>
         </nav>
 
         <div class="sidebar-section-label" style="margin-top:14px;">
@@ -632,6 +666,10 @@
           </a>
           <a class="suite-link" href="${esc(state.suiteUrls.slides || "#")}" target="_blank" rel="noopener">
             <span><span class="suite-dot" style="background:#fbbf24"></span>PlotlySlides</span>
+            <span>↗</span>
+          </a>
+          <a class="suite-link" href="/genie/" target="_blank" rel="noopener">
+            <span><span class="suite-dot" style="background:#a78bfa"></span>Data Genie</span>
             <span>↗</span>
           </a>
         </div>
@@ -683,6 +721,7 @@
                    ${state.role === "owner" ? `<button class="btn btn-sm btn-primary" id="btn-folder-share">🔗 Share Folder</button>` : ""}`
                 : ""
             }
+            <button class="btn btn-sm" id="btn-mcp-info" title="Model Context Protocol (MCP) endpoint &amp; tools">⚡ MCP</button>
             <button class="btn btn-sm" id="btn-suite-settings" title="Configure PlotlyWord, PlotlySheets &amp; PlotlySlides URLs">⚙ Suite</button>
           </div>
         </header>
@@ -692,7 +731,12 @@
             <h1 class="view-heading">${esc(heading)}</h1>
             ${state.folderId ? `<span class="role-badge">${esc(state.role)}</span>` : ""}
           </div>
-          <div class="toolbar-controls">
+          ${
+            state.view === "kg" && !state.folderId
+              ? `<div class="toolbar-controls">
+                  <button class="btn btn-sm" id="btn-kg-rebuild">↻ Re-index All Files</button>
+                </div>`
+              : `<div class="toolbar-controls">
             <div class="filter-chips">
               ${["all", "word", "sheets", "slides", "other"]
                 .map(
@@ -712,11 +756,12 @@
               <button class="${state.layoutMode === "grid" ? "active" : ""}" data-layout="grid" title="Grid view">☷</button>
               <button class="${state.layoutMode === "list" ? "active" : ""}" data-layout="list" title="List view">☰</button>
             </div>
-          </div>
+          </div>`
+          }
         </div>
 
         <div class="content-scroll">
-          ${renderItems(items, canEdit)}
+          ${state.view === "kg" && !state.folderId ? renderKGView() : renderItems(items, canEdit)}
         </div>
 
         ${renderDrawer()}
@@ -801,10 +846,174 @@
           </div>
         </div>
       </dialog>
+
+      <dialog id="mcp-dialog" class="dialog-wide">
+        <div class="dialog-head">
+          <div>
+            <div class="dialog-eyebrow">MODEL CONTEXT PROTOCOL</div>
+            <h3 class="dialog-title">MCP Server &amp; Suite Tools</h3>
+          </div>
+          <button class="btn btn-sm" onclick="document.getElementById('mcp-dialog').close()">✕</button>
+        </div>
+        <div class="dialog-body">
+          <p style="margin:0;color:var(--muted);">Connect any MCP-compatible AI client (Claude, Cursor, Antigravity) to manage folders, read/create Office documents, and query the Neurosymbolic Knowledge Graph.</p>
+          <div>
+            <label class="field-label">HTTP JSON-RPC 2.0 Endpoint</label>
+            <input class="input-full" readonly value="${esc(topWin().location.origin + "/mcp")}" onclick="this.select()">
+          </div>
+          <div>
+            <label class="field-label">Client Configuration Snippet</label>
+            <pre class="preview-text">${esc(JSON.stringify({
+              mcpServers: {
+                plotlyoffice: {
+                  url: topWin().location.origin + "/mcp",
+                  headers: { Authorization: "Bearer " + state.key },
+                },
+              },
+            }, null, 2))}</pre>
+          </div>
+        </div>
+      </dialog>
     `;
 
     bindEvents(items);
     renderTopbarPeers();
+  }
+
+  function renderKGView() {
+    const kg = state.kgData || { nodes: [], edges: [], stats: { nodes: 0, edges: 0, inferred_edges: 0 }, matches: [] };
+    const nodes = kg.nodes || [];
+    const edges = kg.edges || [];
+    const stats = kg.stats || { nodes: 0, edges: 0, inferred_edges: 0 };
+    const matches = kg.matches || [];
+
+    const KIND_COLOR = {
+      Document: "#176b5a",
+      Folder: "#2f6fed",
+      Concept: "#7c3aed",
+      Metric: "#d97706",
+      Person: "#be185d",
+      SuiteApp: "#0f766e",
+    };
+
+    // Deterministic circular/ring layout by node kind for crisp SVG rendering
+    const W = 820, H = 440, cx = W / 2, cy = H / 2;
+    const pos = {};
+    const groups = ["Folder", "Document", "Concept", "Metric", "Person", "SuiteApp"];
+    let allOrdered = [];
+    groups.forEach((g) => {
+      nodes.filter((n) => n.kind === g).forEach((n) => allOrdered.push(n));
+    });
+    nodes.filter((n) => !groups.includes(n.kind)).forEach((n) => allOrdered.push(n));
+    allOrdered.slice(0, 48).forEach((n, idx, arr) => {
+      const ring = n.kind === "Document" || n.kind === "Folder" ? 115 : 185;
+      const angle = (2 * Math.PI * idx) / Math.max(1, arr.length) - Math.PI / 2;
+      pos[n.id] = {
+        x: Math.round(cx + ring * 1.35 * Math.cos(angle)),
+        y: Math.round(cy + ring * 0.95 * Math.sin(angle)),
+      };
+    });
+
+    const selected = state.kgSelectedNode && nodes.find((n) => n.id === state.kgSelectedNode);
+    const selectedEdges = selected ? edges.filter((e) => e.src === selected.id || e.dst === selected.id) : [];
+
+    return `
+      <div class="kg-layout">
+        <div class="kg-top-bar">
+          <form id="kg-query-form" class="kg-query-form">
+            <input id="kg-query-input" placeholder="Ask the Neurosymbolic KG (e.g. Q4 budget, Launch brief, shared metrics…)" value="${esc(state.kgQuery)}">
+            <button class="btn btn-primary" type="submit">Reason &amp; Search</button>
+            ${state.kgQuery ? `<button class="btn" type="button" id="kg-clear-query">Clear</button>` : ""}
+          </form>
+          <div class="kg-stats">
+            <span class="shared-pill">${stats.nodes} nodes</span>
+            <span class="shared-pill">${stats.edges} edges</span>
+            <span class="suite-pill pill-word">${stats.inferred_edges} inferred rules</span>
+          </div>
+        </div>
+
+        <div class="kg-grid">
+          <div class="kg-canvas-card">
+            ${
+              !nodes.length
+                ? `<div class="empty-state" style="margin:24px auto;"><h3>Knowledge Graph is empty</h3><p>Upload or create files in My Files to automatically extract concepts, metrics, and neurosymbolic links.</p></div>`
+                : `<svg viewBox="0 0 ${W} ${H}" class="kg-svg">
+                    ${edges
+                      .map((e) => {
+                        const a = pos[e.src], b = pos[e.dst];
+                        if (!a || !b) return "";
+                        return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${e.inferred ? "#7c3aed" : "#c8d5ce"}" stroke-width="${e.inferred ? 2 : 1.2}" stroke-dasharray="${e.inferred ? "5 4" : ""}" opacity="0.78"><title>${esc(e.rel)}${e.explanation ? " — " + esc(e.explanation) : ""}</title></line>`;
+                      })
+                      .join("")}
+                    ${allOrdered
+                      .slice(0, 48)
+                      .map((n) => {
+                        const p = pos[n.id];
+                        const color = KIND_COLOR[n.kind] || "#475569";
+                        const isSel = state.kgSelectedNode === n.id;
+                        return `<g class="kg-node" data-nid="${esc(n.id)}" style="cursor:pointer;">
+                          <circle cx="${p.x}" cy="${p.y}" r="${n.kind === "Document" ? 16 : 12}" fill="${color}" stroke="${isSel ? "#d7ee85" : "#fff"}" stroke-width="${isSel ? 4 : 2}"></circle>
+                          <text x="${p.x}" y="${p.y + 24}" text-anchor="middle" font-size="10.5" fill="#20342e" font-weight="600">${esc(n.label.slice(0, 18))}</text>
+                        </g>`;
+                      })
+                      .join("")}
+                  </svg>`
+            }
+            <div class="kg-legend">
+              ${Object.entries(KIND_COLOR)
+                .map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`)
+                .join("")}
+              <span><i style="background:#7c3aed;border-radius:0;height:2px;width:12px;"></i>Inferred (Symbolic/Neural)</span>
+            </div>
+          </div>
+
+          <div class="kg-side-card">
+            ${
+              matches.length
+                ? `<div class="dialog-eyebrow" style="margin-bottom:8px;">NEUROSYMBOLIC MATCHES</div>
+                   <div class="kg-list">
+                     ${matches
+                       .map(
+                         (m) => `<div class="kg-match-card kg-node" data-nid="${esc(m.id)}" style="cursor:pointer;">
+                           <div style="display:flex;justify-content:space-between;align-items:center;">
+                             <strong>${esc(m.label)}</strong>
+                             <span class="shared-pill">${m.kind} · ${m.score}</span>
+                           </div>
+                           <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+                             ${m.explanations.map((ex) => `<div>• ${esc(ex)}</div>`).join("")}
+                           </div>
+                         </div>`
+                       )
+                       .join("")}
+                   </div>`
+                : selected
+                ? `<div class="dialog-eyebrow" style="margin-bottom:6px;">${esc(selected.kind)}</div>
+                   <h3 style="margin:0 0 10px;font-family:var(--font-serif);">${esc(selected.label)}</h3>
+                   <div class="kg-list">
+                     ${selectedEdges
+                       .map((e) => {
+                         const otherId = e.src === selected.id ? e.dst : e.src;
+                         const other = nodes.find((n) => n.id === otherId);
+                         return `<div class="kg-match-card">
+                           <strong>${esc(e.rel)}</strong> → ${esc(other ? other.label : otherId)}
+                           ${e.inferred ? `<div style="font-size:11px;color:#6d28d9;margin-top:2px;">⚡ ${esc(e.rule)}: ${esc(e.explanation)}</div>` : ""}
+                         </div>`;
+                       })
+                       .join("")}
+                   </div>`
+                : `<div class="dialog-eyebrow" style="margin-bottom:8px;">HOW IT WORKS</div>
+                   <p style="color:var(--muted);margin:0 0 10px;">Every uploaded or created file is automatically indexed into a <strong>Neurosymbolic Knowledge Graph</strong>:</p>
+                   <ul style="padding-left:16px;color:var(--muted);margin:0;display:flex;flex-direction:column;gap:6px;">
+                     <li><strong>Symbolic extraction</strong>: Documents, Folders, Concepts, Metrics, People, and Suite Apps.</li>
+                     <li><strong>Symbolic rules</strong>: Shared-concept links, folder topic propagation, and expertise inference.</li>
+                     <li><strong>Neural similarity</strong>: 128-d semantic embeddings link related files by meaning.</li>
+                   </ul>
+                   <p style="color:var(--muted);margin-top:12px;">Click any node or enter a query above to inspect reasoning paths.</p>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   function renderItems(items, canEdit) {
@@ -1101,6 +1310,26 @@
     // Profile dialog
     document.getElementById("btn-profile")?.addEventListener("click", () => {
       document.getElementById("profile-dialog").showModal();
+    });
+    document.getElementById("btn-mcp-info")?.addEventListener("click", () => {
+      document.getElementById("mcp-dialog").showModal();
+    });
+    document.getElementById("btn-kg-rebuild")?.addEventListener("click", rebuildKG);
+    document.getElementById("kg-query-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      state.kgQuery = document.getElementById("kg-query-input").value;
+      loadKG();
+    });
+    document.getElementById("kg-clear-query")?.addEventListener("click", () => {
+      state.kgQuery = "";
+      state.kgSelectedNode = null;
+      loadKG();
+    });
+    document.querySelectorAll(".kg-node[data-nid]").forEach((el) => {
+      el.addEventListener("click", () => {
+        state.kgSelectedNode = el.dataset.nid;
+        render();
+      });
     });
     document.getElementById("btn-profile-save")?.addEventListener("click", async () => {
       const val = document.getElementById("profile-name-input").value.trim();

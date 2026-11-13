@@ -14,6 +14,7 @@ from flask import Flask
 from plotly.offline import get_plotlyjs
 from starlette.middleware.wsgi import WSGIMiddleware
 
+from genie.web import configure as configure_genie
 from plotlyoffice.release import release_id
 from plotlyoffice.suite import register_local_suite
 from plotlyoffice.web import configure as configure_office
@@ -143,10 +144,20 @@ def word_insights(data):
 
 word_app.server.mount("/", WSGIMiddleware(word_flask))
 
+# 4b. Plotly Data Genie (mounted at /genie)
+os.environ.setdefault("GENIE_STORAGE_DIR", str(DATA_DIR / "genie_runtime"))
+genie_flask = Flask(
+    "plotlygenie_app",
+    static_folder=str(ROOT / "apps" / "genie" / "assets"),
+    static_url_path="/assets",
+)
+configure_genie(genie_flask, office_store=office_store)
+
 # 5. Mount sub-apps and API fallback onto app.server (FastAPI ASGI)
 server.mount("/sheets", WSGIMiddleware(sheets_flask))
 server.mount("/slides", WSGIMiddleware(slides_flask))
 server.mount("/word", word_app.server)
+server.mount("/genie", WSGIMiddleware(genie_flask))
 server.mount("/", WSGIMiddleware(office_flask))
 
 

@@ -8,3 +8,14 @@
 .main{grid-template-columns:minmax(0,1fr)}
 @media(max-width:850px){#app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:248px;transform:translateX(-102%);transition:.2s;box-shadow:var(--shadow)}.sidebar.open{transform:none}.mobile-menu{display:block}.crumb{display:none}.top-actions .quiet span{display:none}.main{grid-template-rows:50px 74px 33px 49px 36px minmax(0,1fr) 38px}.document-head input{width:58vw;font-size:21px}.toolbar{padding-left:5px}.side-panel{position:absolute;right:0;inset-block:0;width:min(330px,92vw)}.status span:first-child{display:none}.number-tools{display:none}}
 @media(max-width:520px){.top-actions .quiet{display:none}.topbar{padding:0 8px}.document-head{padding:8px 11px}.document-head input{width:65vw}.menus button:nth-last-child(-n+3){display:none}.toolbar .tool-group:nth-of-type(2),.toolbar .tool-group:nth-of-type(4){display:none}.main{grid-template-rows:48px 72px 33px 48px 36px minmax(0,1fr) 38px}.status{display:none}}
+
+/* --- Unified Modern Suite Reskin --- */
+.sidebar{background:linear-gradient(180deg,#122a23 0%,#18372f 60%,#1c4036 100%)!important;box-shadow:inset -1px 0 0 rgba(255,255,255,.06)}
+.topbar,.document-head,.toolbar{background:rgba(255,255,255,.92);backdrop-filter:blur(10px)}
+.button,.workbook-item,.tool-group button,.sheet-tab{transition:all .15s cubic-bezier(.2,.8,.2,1)}
+.button{border-radius:9px}
+.button.primary{box-shadow:0 2px 8px rgba(23,107,90,.2)}
+dialog{border-radius:16px!important;border:1px solid #dce4df!important;box-shadow:0 24px 70px rgba(14,34,28,.24)!important}
+dialog::backdrop{backdrop-filter:blur(5px)!important}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#cad6cf;border-radius:999px}

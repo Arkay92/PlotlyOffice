@@ -7,6 +7,7 @@ from typing import Any
 from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from plotlyoffice.mcp_server import MCP_TOOLS, MCPHandler
 from plotlyoffice.release import release_id
 from plotlyoffice.storage import MAX_UPLOAD_BYTES, Store
 from plotlyoffice.suite import (
@@ -37,6 +38,7 @@ DRIVE_HTML = """<!doctype html>
 
 def configure(server: Flask, db_path: str) -> Store:
     store = Store(db_path)
+    mcp_handler = MCPHandler(store)
     build = release_id()
     drive_html = DRIVE_HTML.replace("__RELEASE__", build)
 
@@ -395,5 +397,42 @@ def configure(server: Flask, db_path: str) -> Store:
     @server.route("/api/items/<item_id>/activity", methods=["GET"])
     def item_activity(item_id):
         return jsonify(store.activity(item_id, key(), link()))
+
+    # --- Neurosymbolic Knowledge Graph ---
+    @server.route("/api/kg", methods=["GET"])
+    def kg_graph():
+        ident = store.identity(key())
+        limit = min(250, max(10, int(request.args.get("limit", 120))))
+        return jsonify(store.kg.graph(ident["key_hash"], limit=limit))
+
+    @server.route("/api/kg/query", methods=["POST"])
+    def kg_query():
+        ident = store.identity(key())
+        data = payload()
+        q = str(data.get("query", "")).strip()
+        limit = min(50, max(1, int(data.get("limit", 12))))
+        return jsonify(store.kg.query(ident["key_hash"], q, limit=limit))
+
+    @server.route("/api/kg/rebuild", methods=["POST"])
+    def kg_rebuild():
+        ident = store.identity(key())
+        stats = store.kg.rebuild_for_owner(ident["key_hash"])
+        return jsonify(ok=True, stats=stats)
+
+    # --- Model Context Protocol (MCP) ---
+    @server.route("/mcp", methods=["GET", "POST"])
+    def mcp_endpoint():
+        if request.method == "GET":
+            return jsonify(
+                name="plotlyoffice-mcp",
+                transport="streamable-http-jsonrpc",
+                protocolVersion="2024-11-05",
+                tools=MCP_TOOLS,
+            )
+        rpc = request.get_json(silent=True)
+        resp = mcp_handler.handle(rpc, raw_key=key(), share_token=link())
+        if resp is None:
+            return "", 204
+        return jsonify(resp)
 
     return store

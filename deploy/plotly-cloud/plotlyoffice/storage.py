@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from plotlyoffice.kg import KnowledgeGraph
+
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 MAX_SHARES_PER_ITEM = 30
 PRESENCE_TTL_SECONDS = 20
@@ -56,6 +58,7 @@ class Store:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
+        self.kg = KnowledgeGraph(self._conn)
 
     def _init_schema(self) -> None:
         with self._conn:
@@ -465,6 +468,7 @@ class Store:
             if actual_parent:
                 self._log_activity(conn, actual_parent, actor, "added folder", clean)
 
+        self.kg.index_item(folder_id)
         return self._row_to_item(self.get_raw_item(folder_id), role)
 
     def save_file(
@@ -532,6 +536,7 @@ class Store:
             if actual_parent:
                 self._log_activity(conn, actual_parent, actor, "uploaded file", clean)
 
+        self.kg.index_item(file_id)
         return self._row_to_item(self.get_raw_item(file_id), role)
 
     def get_file_bytes(
@@ -619,6 +624,10 @@ class Store:
                 conn.execute(f"UPDATE items SET {', '.join(updates)} WHERE id = ?", params)
                 for act, detail in actions:
                     self._log_activity(conn, item_id, actor, act, detail)
+            if trashed is True:
+                self.kg.remove_item(item["owner_id"], item_id)
+            elif name is not None or parent_id is not ... or trashed is False:
+                self.kg.index_item(item_id)
 
         return self._row_to_item(self.get_raw_item(item_id), grant["role"])
 
@@ -661,7 +670,8 @@ class Store:
         }
 
     def delete_forever(self, item_id: str, raw_key: str) -> None:
-        self.access(item_id, raw_key, "", "owner")
+        grant = self.access(item_id, raw_key, "", "owner")
+        owner_id = grant["item"]["owner_id"]
         # Collect descendants for recursive cleanup
         to_delete = [item_id]
         queue = [item_id]
@@ -677,6 +687,8 @@ class Store:
             for target in reversed(to_delete):
                 conn.execute("DELETE FROM presence WHERE item_id = ?", (target,))
                 conn.execute("DELETE FROM items WHERE id = ?", (target,))
+        for target in to_delete:
+            self.kg.remove_item(owner_id, target)
 
     # --- Share links ---
     def links(self, item_id: str) -> list[dict[str, Any]]:
